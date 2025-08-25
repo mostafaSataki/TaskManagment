@@ -42,11 +42,11 @@ export default function LoginPage() {
       });
 
       if (response.status === 200) {
-        alert("Login successful! Redirecting to dashboard...");
+        alert("Login successful! Redirecting to main dashboard...");
         
         // Add a small delay to ensure cookie is set before redirect
         setTimeout(() => {
-          router.push("/test-dashboard");
+          router.push("/main-dashboard");
         }, 500);
       }
     } catch (error: any) {

@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getToken } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    // Get user ID from JWT token
-    const token = await getToken(request);
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Get user ID from headers (set by middleware)
+    const userId = request.headers.get('x-user-id');
+    
+    if (!userId) {
+      return NextResponse.json({ error: "User not authenticated" }, { status: 401 });
     }
-
-    const userId = token.userId;
 
     // Get user information from database
     const user = await db.user.findUnique({
@@ -30,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ user });
   } catch (error) {
-    console.error("Session verification error:", error);
+    console.error("Error fetching user data:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

@@ -57,13 +57,13 @@ export async function middleware(request: NextRequest) {
 
   try {
     // Verify the JWT token
-    const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
     const { payload } = await jwtVerify(token, secret);
 
     // Token is valid, allow access
     const response = NextResponse.next();
     
-    // You can add user info to headers if needed (optional)
+    // Add user info to headers for server-side use
     response.headers.set('x-user-id', payload.userId as string);
     response.headers.set('x-user-email', payload.email as string);
     
@@ -73,7 +73,7 @@ export async function middleware(request: NextRequest) {
     // Token is invalid or expired
     console.error('JWT verification failed:', error);
     
-    // Clear the invalid token cookie
+    // Clear the invalid token cookie and redirect to login
     const response = NextResponse.redirect(new URL('/login', request.url));
     response.cookies.delete('auth-token');
     

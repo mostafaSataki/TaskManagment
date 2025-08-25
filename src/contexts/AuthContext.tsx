@@ -20,25 +20,50 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
-    // Verify user session on mount
+    setHasMounted(true);
+  }, []);
+
+  useEffect(() => {
+    // Only run verification after component has mounted
+    if (!hasMounted) return;
+
     const verifySession = async () => {
       try {
         console.log("AuthContext: Verifying session...");
-        const response = await axios.get("/api/auth/verify");
-        console.log("AuthContext: Verify response:", response.data);
-        if (response.data.user) {
-          console.log("AuthContext: User found, setting user state:", response.data.user);
-          setUser(response.data.user);
-        } else {
-          console.log("AuthContext: No user in response");
+        
+        // Try to get user info from the new header-based endpoint first
+        const response = await axios.get("/api/auth/user", {
+          timeout: 3000,
+          headers: {
+            'Cache-Control': 'no-cache'
+          }
+        });
+        
+        console.log("AuthContext: User found from headers:", response.data.user);
+        setUser(response.data.user);
+        
+      } catch (headerError) {
+        console.log("AuthContext: Header-based auth failed, trying token verification...");
+        
+        // Fallback to token verification
+        try {
+          const fallbackResponse = await axios.get("/api/auth/verify", {
+            timeout: 3000,
+            headers: {
+              'Cache-Control': 'no-cache'
+            }
+          });
+          
+          console.log("AuthContext: User found from token verification:", fallbackResponse.data.user);
+          setUser(fallbackResponse.data.user);
+          
+        } catch (tokenError) {
+          console.log("AuthContext: Both auth methods failed");
           setUser(null);
         }
-      } catch (error) {
-        console.log("AuthContext: Session verification failed:", error);
-        // User is not authenticated, clear user state
-        setUser(null);
       } finally {
         console.log("AuthContext: Setting isLoading to false");
         setIsLoading(false);
@@ -46,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     verifySession();
-  }, []);
+  }, [hasMounted]);
 
   const logout = async () => {
     try {

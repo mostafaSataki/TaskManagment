@@ -17,7 +17,7 @@ import { useState } from "react";
 const navigation = [
   {
     name: "Dashboard",
-    href: "/dashboard",
+    href: "/main-dashboard",
     icon: LayoutDashboard,
   },
   {
