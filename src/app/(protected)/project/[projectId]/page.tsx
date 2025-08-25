@@ -53,17 +53,7 @@ import {
   CalendarDays
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// Task form schema
-const taskSchema = z.object({
-  title: z.string().min(1, "Task title is required"),
-  description: z.string().optional(),
-  priority: z.enum(["low", "medium", "high"]),
-  dueDate: z.date().optional(),
-  assigneeIds: z.array(z.string()).optional(),
-});
-
-type TaskFormData = z.infer<typeof taskSchema>;
+import { TaskForm } from "@/components/task-management/TaskForm";
 
 // Comment form schema
 const commentSchema = z.object({
@@ -74,14 +64,18 @@ type CommentFormData = z.infer<typeof commentSchema>;
 
 interface Task {
   id: string;
-  title: string;
-  description?: string;
+  description: string;
   projectId: string;
   createdById: string;
   assignedToId?: string;
-  status: string;
-  priority: string;
-  dueDate?: string;
+  status: number;
+  priority: number;
+  importanceType?: number;
+  startDateTime?: string;
+  endDateTime?: string;
+  timeEstimateDay?: number;
+  timeEstimateHour?: number;
+  timeEstimateMinute?: number;
   createdAt: string;
   updatedAt: string;
   assignedTo?: {
@@ -95,6 +89,13 @@ interface Task {
     email: string;
   };
   comments?: Comment[];
+  assignees?: {
+    userId: string;
+    name?: string;
+    email: string;
+    status: number;
+    assignedAt: string;
+  }[];
 }
 
 interface Comment {
@@ -109,6 +110,12 @@ interface Comment {
     name?: string;
     email: string;
   };
+}
+
+interface User {
+  id: string;
+  name?: string;
+  email: string;
 }
 
 interface Project {
@@ -145,21 +152,32 @@ function SortableTaskCard({ task, onClick }: { task: Task; onClick: () => void }
     transition,
   };
 
-  const getPriorityColor = (priority: string) => {
+  const getPriorityColor = (priority: number) => {
     switch (priority) {
-      case "high": return "bg-red-100 text-red-800 border-red-200";
-      case "medium": return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "low": return "bg-green-100 text-green-800 border-green-200";
+      case 3: return "bg-red-100 text-red-800 border-red-200";
+      case 2: return "bg-orange-100 text-orange-800 border-orange-200";
+      case 1: return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case 0: return "bg-green-100 text-green-800 border-green-200";
       default: return "bg-gray-100 text-gray-800 border-gray-200";
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getPriorityLabel = (priority: number) => {
+    switch (priority) {
+      case 3: return "Critical";
+      case 2: return "High";
+      case 1: return "Medium";
+      case 0: return "Low";
+      default: return "Medium";
+    }
+  };
+
+  const getStatusColor = (status: number) => {
     switch (status) {
-      case "todo": return "bg-gray-100 text-gray-800";
-      case "in-progress": return "bg-blue-100 text-blue-800";
-      case "done": return "bg-green-100 text-green-800";
-      default: return "bg-gray-100 text-gray-800";
+      case 0: return "border-gray-300 bg-gray-50";
+      case 1: return "border-blue-300 bg-blue-50";
+      case 2: return "border-green-300 bg-green-50";
+      default: return "border-gray-300 bg-gray-50";
     }
   };
 
@@ -183,10 +201,10 @@ function SortableTaskCard({ task, onClick }: { task: Task; onClick: () => void }
             >
               <GripVertical className="h-4 w-4" />
             </div>
-            <h4 className="font-medium text-sm text-gray-900 flex-1">{task.title}</h4>
+            <h4 className="font-medium text-sm text-gray-900 flex-1">{task.description}</h4>
           </div>
           <Badge className={cn("text-xs", getPriorityColor(task.priority))}>
-            {task.priority}
+            {getPriorityLabel(task.priority)}
           </Badge>
         </div>
         
@@ -204,10 +222,10 @@ function SortableTaskCard({ task, onClick }: { task: Task; onClick: () => void }
                 <span>{task.assignedTo.name || task.assignedTo.email}</span>
               </div>
             )}
-            {task.dueDate && (
+            {task.endDateTime && (
               <div className="flex items-center space-x-1">
                 <CalendarDays className="h-3 w-3" />
-                <span>{new Date(task.dueDate).toLocaleDateString()}</span>
+                <span>{new Date(task.endDateTime).toLocaleDateString()}</span>
               </div>
             )}
           </div>
@@ -249,7 +267,7 @@ function Column({ column, onAddTask, onTaskClick }: {
           <h3 className="font-semibold text-gray-900">{column.title}</h3>
           <Badge variant="outline">{column.tasks.length}</Badge>
         </div>
-        {column.id === "todo" && (
+        {column.id === "0" && (
           <Button
             variant="ghost"
             size="sm"
@@ -283,10 +301,11 @@ export default function ProjectPage() {
   const projectId = params.projectId as string;
   
   const [project, setProject] = useState<Project | null>(null);
+  const [workspaceUsers, setWorkspaceUsers] = useState<User[]>([]);
   const [columns, setColumns] = useState<Record<string, Column>>({
-    todo: { id: "todo", title: "To Do", tasks: [] },
-    "in-progress": { id: "in-progress", title: "In Progress", tasks: [] },
-    done: { id: "done", title: "Done", tasks: [] },
+    "0": { id: "0", title: "To Do", tasks: [] },
+    "1": { id: "1", title: "In Progress", tasks: [] },
+    "2": { id: "2", title: "Done", tasks: [] },
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -296,17 +315,6 @@ export default function ProjectPage() {
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
-
-  const taskForm = useForm<TaskFormData>({
-    resolver: zodResolver(taskSchema),
-    defaultValues: {
-      title: "",
-      description: "",
-      priority: "medium",
-      dueDate: undefined,
-      assigneeIds: [],
-    },
-  });
 
   const commentForm = useForm<CommentFormData>({
     resolver: zodResolver(commentSchema),
@@ -333,15 +341,26 @@ export default function ProjectPage() {
         const projectResponse = await axios.get(`/api/projects/${projectId}`);
         setProject(projectResponse.data);
 
+        // Fetch workspace users for assignee selection
+        if (projectResponse.data.workSpaceId) {
+          try {
+            const usersResponse = await axios.get(`/api/workspaces/${projectResponse.data.workSpaceId}/users`);
+            setWorkspaceUsers(usersResponse.data);
+          } catch (err) {
+            console.log("Could not fetch workspace users:", err);
+            setWorkspaceUsers([]);
+          }
+        }
+
         // Fetch tasks for this project
         const tasksResponse = await axios.get(`/api/projects/${projectId}/tasks`);
         const tasks = tasksResponse.data;
 
-        // Group tasks by status
+        // Group tasks by status (0: todo, 1: in-progress, 2: done)
         const groupedTasks = {
-          todo: { id: "todo", title: "To Do", tasks: tasks.filter((t: Task) => t.status === "todo") },
-          "in-progress": { id: "in-progress", title: "In Progress", tasks: tasks.filter((t: Task) => t.status === "in-progress") },
-          done: { id: "done", title: "Done", tasks: tasks.filter((t: Task) => t.status === "done") },
+          "0": { id: "0", title: "To Do", tasks: tasks.filter((t: Task) => t.status === 0) },
+          "1": { id: "1", title: "In Progress", tasks: tasks.filter((t: Task) => t.status === 1) },
+          "2": { id: "2", title: "Done", tasks: tasks.filter((t: Task) => t.status === 2) },
         };
 
         setColumns(groupedTasks);
@@ -422,7 +441,7 @@ export default function ProjectPage() {
     // Update task status in backend
     try {
       await axios.patch(`/api/tasks/${activeId}/status`, {
-        status: destinationColumn.id,
+        status: parseInt(destinationColumn.id),
       });
       toast.success("Task status updated successfully!");
     } catch (err: any) {
@@ -433,40 +452,6 @@ export default function ProjectPage() {
     }
 
     setActiveTask(null);
-  };
-
-  const handleCreateTask = async (data: TaskFormData) => {
-    try {
-      setIsCreating(true);
-      
-      const taskData = {
-        ...data,
-        dueDate: data.dueDate ? data.dueDate.toISOString() : null,
-      };
-
-      const response = await axios.post(`/api/projects/${projectId}/tasks`, taskData);
-      
-      // Add new task to todo column
-      const newTask = response.data;
-      setColumns(prev => ({
-        ...prev,
-        todo: {
-          ...prev.todo,
-          tasks: [newTask, ...prev.todo.tasks],
-        },
-      }));
-      
-      // Close dialog and reset form
-      setIsTaskDialogOpen(false);
-      taskForm.reset();
-      toast.success("Task created successfully!");
-    } catch (err: any) {
-      console.error("Error creating task:", err);
-      const errorMessage = err.response?.data?.error || "Failed to create task";
-      toast.error(errorMessage);
-    } finally {
-      setIsCreating(false);
-    }
   };
 
   const handleAddComment = async (data: CommentFormData) => {
@@ -602,126 +587,38 @@ export default function ProjectPage() {
               New Task
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[525px]">
-            <DialogHeader>
-              <DialogTitle>Create New Task</DialogTitle>
-              <DialogDescription>
-                Create a new task for this project.
-              </DialogDescription>
-            </DialogHeader>
-            <Form {...taskForm}>
-              <form onSubmit={taskForm.handleSubmit(handleCreateTask)} className="space-y-4">
-                <FormField
-                  control={taskForm.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Task Title</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter task title" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={taskForm.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Description (Optional)</FormLabel>
-                      <FormControl>
-                        <Textarea 
-                          placeholder="Enter task description" 
-                          className="resize-none" 
-                          {...field} 
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={taskForm.control}
-                    name="priority"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Priority</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select priority" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="low">Low</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="high">High</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={taskForm.control}
-                    name="dueDate"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel>Due Date (Optional)</FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                variant={"outline"}
-                                className={cn(
-                                  "w-full pl-3 text-left font-normal",
-                                  !field.value && "text-muted-foreground"
-                                )}
-                              >
-                                {field.value ? (
-                                  format(field.value, "PPP")
-                                ) : (
-                                  <span>Pick a date</span>
-                                )}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={field.onChange}
-                              disabled={(date) =>
-                                date < new Date(new Date().setHours(0, 0, 0, 0))
-                              }
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <DialogFooter>
-                  <Button type="submit" disabled={isCreating}>
-                    {isCreating ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Creating...
-                      </>
-                    ) : (
-                      "Create Task"
-                    )}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
         </Dialog>
+        
+        {/* Task Form Component */}
+        {project && (
+          <TaskForm
+            open={isTaskDialogOpen}
+            onOpenChange={setIsTaskDialogOpen}
+            projectId={projectId}
+            workspaceId={project.workSpaceId}
+            users={workspaceUsers}
+            onSuccess={() => {
+              // Refresh tasks after creation
+              const fetchData = async () => {
+                try {
+                  const tasksResponse = await axios.get(`/api/projects/${projectId}/tasks`);
+                  const tasks = tasksResponse.data;
+                  
+                  const groupedTasks = {
+                    "0": { id: "0", title: "To Do", tasks: tasks.filter((t: Task) => t.status === 0) },
+                    "1": { id: "1", title: "In Progress", tasks: tasks.filter((t: Task) => t.status === 1) },
+                    "2": { id: "2", title: "Done", tasks: tasks.filter((t: Task) => t.status === 2) },
+                  };
+                  
+                  setColumns(groupedTasks);
+                } catch (err) {
+                  console.error("Error refreshing tasks:", err);
+                }
+              };
+              fetchData();
+            }}
+          />
+        )}
       </div>
 
       {/* Kanban Board */}
@@ -747,13 +644,8 @@ export default function ProjectPage() {
             <Card className="opacity-50 shadow-lg">
               <CardContent className="p-4">
                 <h4 className="font-medium text-sm text-gray-900 mb-2">
-                  {activeTask.title}
+                  {activeTask.description}
                 </h4>
-                {activeTask.description && (
-                  <p className="text-xs text-gray-600">
-                    {activeTask.description}
-                  </p>
-                )}
               </CardContent>
             </Card>
           )}
@@ -764,9 +656,9 @@ export default function ProjectPage() {
       <Dialog open={isDetailDialogOpen} onOpenChange={setIsDetailDialogOpen}>
         <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{selectedTask?.title}</DialogTitle>
+            <DialogTitle>Task Details</DialogTitle>
             <DialogDescription>
-              Task details and comments
+              View task details and add comments
             </DialogDescription>
           </DialogHeader>
           
@@ -785,12 +677,12 @@ export default function ProjectPage() {
                   <div>
                     <Label className="text-sm font-medium text-gray-700">Status</Label>
                     <Badge className={cn("mt-1", 
-                      selectedTask.status === "todo" ? "bg-gray-100 text-gray-800" :
-                      selectedTask.status === "in-progress" ? "bg-blue-100 text-blue-800" :
+                      selectedTask.status === 0 ? "bg-gray-100 text-gray-800" :
+                      selectedTask.status === 1 ? "bg-blue-100 text-blue-800" :
                       "bg-green-100 text-green-800"
                     )}>
-                      {selectedTask.status === "todo" ? "To Do" :
-                       selectedTask.status === "in-progress" ? "In Progress" :
+                      {selectedTask.status === 0 ? "To Do" :
+                       selectedTask.status === 1 ? "In Progress" :
                        "Done"}
                     </Badge>
                   </div>
@@ -798,11 +690,12 @@ export default function ProjectPage() {
                   <div>
                     <Label className="text-sm font-medium text-gray-700">Priority</Label>
                     <Badge className={cn("mt-1",
-                      selectedTask.priority === "high" ? "bg-red-100 text-red-800" :
-                      selectedTask.priority === "medium" ? "bg-yellow-100 text-yellow-800" :
+                      selectedTask.priority === 3 ? "bg-red-100 text-red-800" :
+                      selectedTask.priority === 2 ? "bg-orange-100 text-orange-800" :
+                      selectedTask.priority === 1 ? "bg-yellow-100 text-yellow-800" :
                       "bg-green-100 text-green-800"
                     )}>
-                      {selectedTask.priority}
+                      {getPriorityLabel(selectedTask.priority)}
                     </Badge>
                   </div>
                 </div>
@@ -825,11 +718,11 @@ export default function ProjectPage() {
                   )}
                 </div>
                 
-                {selectedTask.dueDate && (
+                {selectedTask.endDateTime && (
                   <div>
                     <Label className="text-sm font-medium text-gray-700">Due Date</Label>
                     <p className="text-sm text-gray-600 mt-1">
-                      {formatDate(selectedTask.dueDate)}
+                      {formatDate(selectedTask.endDateTime)}
                     </p>
                   </div>
                 )}
