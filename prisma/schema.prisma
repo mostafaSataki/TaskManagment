@@ -15,6 +15,7 @@ datasource db {
 
 model User {
   id        String   @id @default(cuid())
+  fullName  String?
   email     String   @unique
   name      String?
   isActive  Boolean  @default(true)
@@ -71,6 +72,10 @@ model AspNetUser {
   
   // Relations
   user User @relation(fields: [id], references: [id], onDelete: Cascade)
+  aspNetUserClaims AspNetUserClaim[]
+  aspNetUserLogins AspNetUserLogin[]
+  aspNetUserRoles AspNetUserRole[]
+  aspNetUserTokens AspNetUserToken[]
   
   @@map("AspNetUsers")
 }
@@ -84,7 +89,7 @@ model WorkSpace {
   createdAt   DateTime @default(now())
   createdById   String?
   fileDataId  String?
-  currentContractId String
+  currentContractId String? @unique
   workSpaceCode Int     @unique
   hasVoip     Boolean?
   
@@ -95,6 +100,9 @@ model WorkSpace {
   tasks       Task[]
   problems    Problem[]
   relatedPeople RelatedPerson[]
+  contract    Contract?       @relation("ContractWorkSpace")
+  fileData    FileData?       @relation("WorkSpaceFileData", fields: [fileDataId], references: [id])
+  workSpaceInvitedUsers WorkSpaceInvitedUser[]
   
   @@map("WorkSpaces")
 }
@@ -118,6 +126,7 @@ model WorkSpaceUser {
   // Relations
   workSpace WorkSpace @relation(fields: [workSpaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatarFile FileData? @relation("WorkSpaceUserAvatar", fields: [avatarFileId], references: [id])
   
   @@unique([workSpaceId, userId])
   @@map("WorkSpaceUsers")
@@ -198,6 +207,7 @@ model Task {
   taskUnits     TaskUnit[]
   taskVoipData  TaskVoipData?
   notifications Notification[]
+  voipTasks     VoipTask[]
   
   @@map("Tasks")
 }
@@ -392,7 +402,7 @@ model Notification {
   notificationTitle    String?
   imageUrl             String?
   notificationBody     String?
-  notificationState    Int      @default(0)
+  notificationStateId  Int      @default(0)
   createdBy            String?
   createdAt            DateTime @default(now())
   workSpaceId          String?
@@ -408,6 +418,7 @@ model Notification {
   user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   notificationResults NotificationResult[]
   task             Task?              @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  notificationState NotificationState? @relation(fields: [notificationStateId], references: [id])
   
   @@map("Notifications")
 }
@@ -529,6 +540,9 @@ model FileData {
   commentFiles   CommentFile[]
   problemFiles   ProblemFile[]
   usersAsAvatar  User[]           @relation("UserAvatar")
+  workSpaces     WorkSpace[]       @relation("WorkSpaceFileData")
+  workSpaceUsers WorkSpaceUser[]  @relation("WorkSpaceUserAvatar")
+  fileExtensions FileExtension?    @relation(fields: [fileExtension], references: [extension])
   
   @@map("FileDatas")
 }
@@ -557,4 +571,346 @@ model AppSetting {
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@map("AppSettings")
+}
+
+// Missing models from SQL Server schema
+model Contract {
+  id                       String   @id @default(cuid())
+  shoppingCartId           String?
+  contractNumber           Int      @unique
+  title                    String
+  activeState              Int      @default(0)
+  contractStartDate        DateTime @default(now())
+  contractEndDate          DateTime @default(now())
+  basePrice                Float
+  additionalPrice          Float    @default(0)
+  discountPrice            Float    @default(0)
+  finalPrice               Float
+  numberOfUsers            Int
+  workSpaceCount           Int      @default(1)
+  discVolume               Int
+  duration                 Int
+  licenseDuration          Int
+  transformedFromContractId String?
+  originalContractId       String?
+  createdAt                DateTime @default(now())
+  createdById              String?
+  hasDedicatedServer       Boolean  @default(false)
+  accessToSendSms          Boolean  @default(true)
+  accessToFileManagerBackUp Boolean  @default(true)
+  accessToFileManager      Boolean  @default(true)
+  accessToReorderTasks     Boolean  @default(true)
+  accessToEstimate         Boolean  @default(true)
+  accessToStartEndTask     Boolean  @default(true)
+  accessToReminder         Boolean  @default(true)
+  accessToPriority         Boolean  @default(true)
+  accessToImportance       Boolean  @default(true)
+  accessToNotification     Boolean  @default(true)
+  accessToAi               Boolean  @default(true)
+  accessToContacts         Boolean  @default(true)
+  accessToProblems         Boolean  @default(true)
+  accessToTimeline         Boolean  @default(true)
+  accessToReports          Boolean  @default(true)
+  accessToUploadFileInComment Boolean @default(true)
+  
+  // Relations
+  shoppingCart ShoppingCart? @relation(fields: [shoppingCartId], references: [id])
+  workSpace   WorkSpace?   @relation("ContractWorkSpace", fields: [id], references: [currentContractId])
+  usedDiscounts Discount[] @relation("DiscountUsedContract")
+  createdDiscounts Discount[] @relation("DiscountCreateContract")
+  
+  @@map("Contracts")
+}
+
+model License {
+  id                       String   @id @default(cuid())
+  title                    String
+  numberOfUsers            Int
+  workSpaceCount           Int      @default(1)
+  discVolume               Int
+  price                    Float
+  isActive                 Boolean  @default(true)
+  viewOrder                Int
+  createdById              String?
+  createdAt                DateTime @default(now())
+  duration                 Int
+  licenseDuration          Int
+  accessToSendSms          Boolean  @default(true)
+  accessToFileManagerBackUp Boolean  @default(true)
+  accessToFileManager      Boolean  @default(true)
+  accessToReorderTasks     Boolean  @default(true)
+  accessToEstimate         Boolean  @default(true)
+  accessToStartEndTask     Boolean  @default(true)
+  accessToReminder         Boolean  @default(true)
+  accessToPriority         Boolean  @default(true)
+  accessToImportance       Boolean  @default(true)
+  accessToNotification     Boolean  @default(true)
+  accessToAi               Boolean  @default(true)
+  accessToContacts         Boolean  @default(true)
+  accessToProblems         Boolean  @default(true)
+  accessToTimeline         Boolean  @default(true)
+  accessToReports          Boolean  @default(true)
+  accessToUploadFileInComment Boolean @default(true)
+  
+  @@map("Licenses")
+}
+
+model LicenseSetting {
+  id        String   @id @default(cuid())
+  userPrice Float
+  memoryPrice Float
+  createdById String?
+  createdAt DateTime @default(now())
+  
+  @@map("LicenseSettings")
+}
+
+model ShoppingCart {
+  id                     String   @id @default(cuid())
+  trackingNumber         BigInt   @unique
+  authority              String?
+  title                  String
+  isWebApp               Boolean  @default(false)
+  paymentSuccess         Boolean?
+  paymentDateTime        DateTime?
+  paymentRefId           BigInt?
+  paymentCode            Int?
+  activeState            Int
+  basePrice              Float
+  additionalPrice        Float?
+  discountPrice          Float?
+  finalPrice             Float
+  numberOfUsers          Int
+  discVolume             Int
+  licenseDuration        Int
+  duration               Int
+  transformedFromContractId String?
+  originalContractId     String?
+  createdAt              DateTime @default(now())
+  createdById            String?
+  hasDedicatedServer     Boolean  @default(false)
+  licenseId              String?
+  
+  // Relations
+  contracts Contract[]
+  
+  @@map("ShoppingCarts")
+}
+
+model Discount {
+  id                 String   @id @default(cuid())
+  discountCode       String   @unique
+  usedWithContractId String?
+  createByContractId String?
+  isPercent          Boolean  @default(false)
+  discountValue      Int
+  discountStatus     Int      @default(0)
+  createdAt          DateTime @default(now())
+  createdById        String?
+  
+  // Relations
+  usedWithContract   Contract?   @relation("DiscountUsedContract", fields: [usedWithContractId], references: [id])
+  createByContract   Contract?   @relation("DiscountCreateContract", fields: [createByContractId], references: [id])
+  
+  @@map("Discounts")
+}
+
+model NotificationState {
+  id    Int     @id
+  title String
+  
+  // Relations
+  notifications Notification[]
+  
+  @@map("NotificationStates")
+}
+
+model AspNetRole {
+  id               String   @id @default(cuid())
+  name             String?  @unique
+  normalizedName   String?  @unique
+  concurrencyStamp String?
+  customerId       String?
+  workSpaceId      String?
+  
+  // Relations
+  aspNetRoleClaims AspNetRoleClaim[]
+  aspNetUserRoles  AspNetUserRole[]
+  
+  @@map("AspNetRoles")
+}
+
+model AspNetRoleClaim {
+  id         String   @id @default(cuid())
+  roleId     String
+  claimType  String?
+  claimValue String?
+  
+  // Relations
+  role AspNetRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  
+  @@map("AspNetRoleClaims")
+}
+
+model AspNetUserClaim {
+  id         String   @id @default(cuid())
+  userId     String
+  claimType  String?
+  claimValue String?
+  
+  // Relations
+  user AspNetUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("AspNetUserClaims")
+}
+
+model AspNetUserLogin {
+  loginProvider    String
+  providerKey      String
+  providerDisplayName String?
+  userId           String
+  
+  // Relations
+  user AspNetUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@id([loginProvider, providerKey])
+  @@map("AspNetUserLogins")
+}
+
+model AspNetUserRole {
+  userId String
+  roleId String
+  
+  // Relations
+  user AspNetUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role AspNetRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  
+  @@id([userId, roleId])
+  @@map("AspNetUserRoles")
+}
+
+model AspNetUserToken {
+  userId        String
+  loginProvider String
+  name          String
+  value         String?
+  
+  // Relations
+  user AspNetUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@id([userId, loginProvider, name])
+  @@map("AspNetUserTokens")
+}
+
+model FileExtension {
+  extension String @id
+  fileType  Int      @default(1)
+  
+  // Relations
+  fileDatas FileData[]
+  
+  @@map("FileExtensions")
+}
+
+model GlobalSetting {
+  id        String   @id @default(uuid())
+  title     String
+  isEnabled Boolean  @default(true)
+  createdAt DateTime @default(now())
+  createdById String?
+  
+  @@map("GlobalSettings")
+}
+
+model Name {
+  id          String   @id @default(cuid())
+  inputString String
+  
+  suggestions Suggestion[]
+  
+  @@map("Names")
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  price         Float
+  trackingNumber BigInt?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  
+  @@map("Payments")
+}
+
+model Suggestion {
+  id          String   @id @default(cuid())
+  nameId      String
+  nameSuggestion String
+  deviceId    String?
+  
+  // Relations
+  name Name @relation(fields: [nameId], references: [id], onDelete: Cascade)
+  
+  @@map("Suggestions")
+}
+
+model SmsMessage {
+  id             String   @id @default(cuid())
+  receptorNumber String
+  messageText    String
+  sentDateTime   DateTime @default(now())
+  createdById    String?
+  createdAt      DateTime @default(now())
+  
+  @@map("SmsMessages")
+}
+
+model VoipFile {
+  id                  String   @id @default(cuid())
+  fileAddress         String
+  fileInfo            String
+  isChecked           Boolean  @default(false)
+  voipCallResult      Int      @default(0)
+  destinationUserId   Int?
+  destinationUserData String?
+  duration            Int      @default(0)
+  sourceUserId        Int?
+  sourceUserData      String?
+  voipExtension       String?
+  createdAt           DateTime @default(now())
+  createdById         String?
+  
+  // Relations
+  voipTasks VoipTask[]
+  
+  @@map("Z___VoipFiles")
+}
+
+model VoipTask {
+  id          String   @id @default(cuid())
+  voipFileId  String
+  taskId      String
+  createdById String?
+  createdAt   DateTime @default("2024-09-30T13:11:06.2201348+03:30")
+  
+  // Relations
+  voipFile VoipFile @relation(fields: [voipFileId], references: [id], onDelete: Cascade)
+  task     Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  @@unique([taskId, voipFileId])
+  @@map("Z___VoipTasks")
+}
+
+model WorkSpaceInvitedUser {
+  id          String   @id @default(cuid())
+  name        String?
+  workSpaceId String
+  phoneNumber String
+  createdAt   DateTime @default(now())
+  createdById String
+  
+  // Relations
+  workSpace WorkSpace @relation(fields: [workSpaceId], references: [id], onDelete: Cascade)
+  
+  @@unique([phoneNumber, workSpaceId])
+  @@map("WorkSpaceInvitedUsers")
 }
