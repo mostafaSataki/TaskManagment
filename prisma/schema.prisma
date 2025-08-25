@@ -17,33 +17,36 @@ model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
+  isActive  Boolean  @default(true)
+  passwordIsChanged Boolean @default(false)
+  avatarFileId String?
+  createdBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  isDinawinEmployee Boolean?
   
   // Relations
   aspNetUser AspNetUser?
-  posts      Post[]
   workSpaceUsers WorkSpaceUser[]
-  createdWorkSpaces WorkSpace[]
-  createdProjects Project[]
-  userProjects UserProject[]
-  createdTasks Task[]
+  createdWorkSpaces WorkSpace[] @relation("WorkSpaceCreator")
+  createdProjects Project[] @relation("ProjectCreator")
+  createdTasks Task[] @relation("TaskCreator")
   assignedTasks Task[] @relation("TaskAssignments")
   userTasks   UserTask[]
   comments   Comment[]
-}
-
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  problemUsers ProblemUser[]
+  relatedPeopleAsUser RelatedPerson[] @relation("RelatedPersonUser")
+  relatedPeopleAsRelatedUser RelatedPerson[] @relation("RelatedPersonRelatedUser")
+  userSecurityToken UserSecurityToken?
+  appSettings AppSetting[]
+  notifications Notification[]
+  firebaseTokens FirebaseToken[]
+  userProjects UserProject[]
+  taskProgresses TaskProgress[]
+  commentReactions CommentReaction[]
+  avatarFile FileData? @relation("UserAvatar", fields: [avatarFileId], references: [id])
   
-  // Relations
-  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  @@map("Users")
 }
 
 model AspNetUser {
@@ -62,138 +65,496 @@ model AspNetUser {
   lockoutEnd        DateTime?
   lockoutEnabled    Boolean  @default(true)
   accessFailedCount Int      @default(0)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  refreshToken     String?
+  refreshTokenExpiry DateTime @default("0001-01-01T00:00:00Z")
+  oldId            String?
   
   // Relations
   user User @relation(fields: [id], references: [id], onDelete: Cascade)
+  
+  @@map("AspNetUsers")
 }
 
 model WorkSpace {
   id          String   @id @default(cuid())
-  title       String
+  workSpaceTitle String @unique
   description String?
-  createdById String
+  isActive    Boolean  @default(true)
+  inActiveDescription String?
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdById   String?
+  fileDataId  String?
+  currentContractId String
+  workSpaceCode Int     @unique
+  hasVoip     Boolean?
   
   // Relations
-  createdBy  User           @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy  User?           @relation("WorkSpaceCreator", fields: [createdById], references: [id], onDelete: Cascade)
   workSpaceUsers WorkSpaceUser[]
   projects    Project[]
+  tasks       Task[]
+  problems    Problem[]
+  relatedPeople RelatedPerson[]
+  
+  @@map("WorkSpaces")
 }
 
 model WorkSpaceUser {
   id              String   @id @default(cuid())
   workSpaceId     String
   userId          String
-  isWorkSpaceOwner Boolean  @default(false)
+  created         DateTime @default(now())
+  createdBy       String?
+  isUserAccepted  Boolean  @default(false)
+  isActive        Boolean  @default(false)
+  hasCheckedWorkSpace Boolean?
   isWorkSpaceAdmin Boolean  @default(false)
-  joinedAt        DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  isWorkSpaceOwner Boolean  @default(false)
+  userAlias       String?
+  avatarFileId    String?
+  order           Int?
+  totalOrder      Int?
   
   // Relations
   workSpace WorkSpace @relation(fields: [workSpaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@unique([workSpaceId, userId])
+  @@map("WorkSpaceUsers")
 }
 
 model Project {
   id          String   @id @default(cuid())
-  title       String
+  workSpaceId String
+  name        String
   description String?
+  attachment  String?
+  createdById   String?
+  createdAt   DateTime @default(now())
+  isActive    Boolean  @default(false)
   startDate   DateTime?
   endDate     DateTime?
-  workSpaceId String
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
   
   // Relations
   workSpace WorkSpace @relation(fields: [workSpaceId], references: [id], onDelete: Cascade)
-  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy User?      @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: Cascade)
   userProjects UserProject[]
-  tasks       Task[]
   taskProjects TaskProject[]
+  
+  @@map("Projects")
 }
 
 model UserProject {
   id               String   @id @default(cuid())
   projectId        String
   userId           String
-  isProjectManager Boolean  @default(false)
-  joinedAt         DateTime @default(now())
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  created          DateTime @default(now())
+  createdBy        String?
+  order            Int      @default(0)
+  isFavorite       Boolean  @default(false)
+  isFavouriteUserId String?
+  isProjectManager Boolean?
   
   // Relations
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@unique([projectId, userId])
+  @@map("UserProjects")
 }
 
 model Task {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  projectId   String
-  createdById String
-  assignedToId String?
-  status      String   @default("todo") // todo, in-progress, done
-  priority    String   @default("medium") // low, medium, high
-  dueDate     DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  workSpaceId          String
+  description          String
+  startDateTime        DateTime?
+  endDateTime          DateTime?
+  timeEstimateDay      Int?
+  timeEstimateHour     Int?
+  timeEstimateMinute   Int?
+  priority             Int?
+  importanceType       Int?
+  dragLocked           Boolean  @default(false)
+  status               Int      @default(0)
+  reminderSettingsJson String?
+  isCreatedByAI        Boolean  @default(false)
+  isDeleted            Boolean  @default(false)
+  createdById          String?
+  assignedToId         String?
+  createdAt            DateTime @default(now())
+  lastEditedById       String?
+  lastEditedDate       DateTime?
   
   // Relations
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
-  assignedTo User?    @relation("TaskAssignments", fields: [assignedToId], references: [id])
-  taskProjects TaskProject[]
-  userTasks   UserTask[]
-  comments    Comment[]
+  workSpace     WorkSpace        @relation(fields: [workSpaceId], references: [id], onDelete: Cascade)
+  createdBy     User?            @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  assignedTo    User?            @relation("TaskAssignments", fields: [assignedToId], references: [id])
+  taskProjects  TaskProject[]
+  userTasks     UserTask[]
+  comments      Comment[]
+  taskImages    TaskImage[]
+  taskProgresses TaskProgress[]
+  taskRequirements TaskRequirement[]
+  taskUnits     TaskUnit[]
+  taskVoipData  TaskVoipData?
+  notifications Notification[]
+  
+  @@map("Tasks")
 }
 
 model TaskProject {
-  id       String @id @default(cuid())
-  taskId   String
+  id        String   @id @default(cuid())
+  taskId    String
   projectId String
+  createdBy String?
   createdAt DateTime @default(now())
+  order     Int?
   
   // Relations
   task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   
-  @@unique([taskId, projectId])
+  @@unique([projectId, taskId])
+  @@map("TaskProjects")
 }
 
 model UserTask {
-  id       String @id @default(cuid())
-  taskId   String
-  userId   String
-  status   String @default("todo") // todo, in-progress, done
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  tasksId              String
+  usersId              String
+  viewOrder            Int      @default(0)
+  timelineViewOrder    Int      @default(0)
+  taskStatus           Int      @default(0)
+  createdDate          DateTime @default(now())
+  seenDate             DateTime?
+  inProgressDate       DateTime?
+  doneDate             DateTime?
+  completeDate         DateTime?
+  todayStartDate       DateTime?
+  todayEndDate         DateTime?
+  rejectedDate         DateTime?
+  lastStatusUpdateUserId String?
+  startDateTime        DateTime?
+  seenByUser           Boolean  @default(false)
+  doneWithDelay        Boolean  @default(false)
+  rejectedCount        Int      @default(0)
   
   // Relations
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [tasksId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [usersId], references: [id], onDelete: Cascade)
   
-  @@unique([taskId, userId])
+  @@unique([tasksId, usersId])
+  @@map("UserTasks")
 }
 
 model Comment {
   id        String   @id @default(cuid())
-  taskId    String
-  userId    String
+  taskId    String?
   body      String
+  commentId String?
+  userId    String
+  createdBy String?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isEdited  Boolean?
+  problemId String?
+  
+  // Relations
+  task    Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem Problem?  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  parentComment Comment? @relation("CommentParent", fields: [commentId], references: [id])
+  comments Comment[] @relation("CommentParent")
+  commentFiles CommentFile[]
+  commentReactions CommentReaction[]
+  
+  @@map("Comments")
+}
+
+model CommentFile {
+  id        String   @id @default(cuid())
+  commentId String
+  fileType  Int
+  fileDataId String
+  createdBy String?
+  createdAt DateTime @default(now())
+  
+  // Relations
+  comment  Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  fileData FileData @relation(fields: [fileDataId], references: [id], onDelete: Cascade)
+  
+  @@map("CommentFiles")
+}
+
+model CommentReaction {
+  id        String   @id @default(cuid())
+  seenDate  DateTime @default(now())
+  userId    String
+  commentId String
+  createdBy String?
+  createdAt DateTime @default(now())
+  
+  // Relations
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, commentId])
+  @@map("CommentReactions")
+}
+
+model TaskImage {
+  id        String   @id @default(cuid())
+  taskId    String
+  fileType  Int
+  imageId   String
+  createdBy String?
+  createdAt DateTime @default(now())
+  
+  // Relations
+  task     Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileData FileData @relation("TaskImageFileData", fields: [imageId], references: [id], onDelete: Cascade)
+  
+  @@map("TaskImages")
+}
+
+model TaskProgress {
+  id          String   @id @default(cuid())
+  progress    Int
+  description String?
+  userRole    Int
+  endTime     DateTime
+  userId      String
+  taskId      String
+  createdBy   String?
+  createdAt   DateTime @default(now())
   
   // Relations
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("TaskProgresses")
+}
+
+model TaskRequirement {
+  id        String   @id @default(cuid())
+  order     Int
+  body      String
+  isDone    Boolean  @default(false)
+  taskId    String
+  createdBy String?
+  createdAt DateTime @default(now())
+  
+  // Relations
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  @@map("TaskRequirements")
+}
+
+model Unit {
+  id        String   @id @default(cuid())
+  name      String
+  createdBy String?
+  createdAt DateTime @default(now())
+  
+  // Relations
+  taskUnits TaskUnit[]
+  
+  @@map("Units")
+}
+
+model TaskUnit {
+  tasksId String
+  unitsId String
+  
+  // Relations
+  task Task @relation(fields: [tasksId], references: [id], onDelete: Cascade)
+  unit Unit @relation(fields: [unitsId], references: [id], onDelete: Cascade)
+  
+  @@id([tasksId, unitsId])
+  @@map("TaskUnits")
+}
+
+model TaskVoipData {
+  id               String   @id @default(cuid())
+  voipAudioFileText String?
+  
+  // Relations
+  task Task @relation(fields: [id], references: [id], onDelete: Cascade)
+  
+  @@map("TaskVoipData")
+}
+
+model Notification {
+  id                   String   @id @default(cuid())
+  entityId             String
+  userId               String
+  sendingNotifDateTime DateTime @default(now())
+  notificationType     Int
+  notificationTitle    String?
+  imageUrl             String?
+  notificationBody     String?
+  notificationState    Int      @default(0)
+  createdBy            String?
+  createdAt            DateTime @default(now())
+  workSpaceId          String?
+  reminderDate         DateTime?
+  reminderTime         DateTime?
+  repeat               Boolean  @default(false)
+  earlyReminderValue  Int?
+  earlyReminderTime   Int?
+  reminderRepeatValue Int?
+  reminderRepeatTime  Int?
+  
+  // Relations
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notificationResults NotificationResult[]
+  task             Task?              @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  
+  @@map("Notifications")
+}
+
+model NotificationResult {
+  id                 String   @id @default(cuid())
+  systemNotificationId String
+  firebaseTokenId    String
+  success            Boolean
+  sendErrorMessage   String?
+  createdBy          String?
+  createdAt          DateTime @default(now())
+  
+  // Relations
+  notification Notification @relation(fields: [systemNotificationId], references: [id], onDelete: Cascade)
+  firebaseToken FirebaseToken @relation(fields: [firebaseTokenId], references: [id], onDelete: Cascade)
+  
+  @@map("NotificationResults")
+}
+
+model FirebaseToken {
+  id          String   @id @default(cuid())
+  userId      String
+  deviceId    String   @unique
+  token       String
+  createdAt   DateTime @default(now())
+  createdBy   String?
+  updatedDate DateTime?
+  
+  // Relations
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notificationResults  NotificationResult[]
+  
+  @@map("FirebaseTokens")
+}
+
+model Problem {
+  id          String   @id @default(cuid())
+  workSpaceId String
+  problemType Int      @default(0)
+  description String
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  workSpace   WorkSpace    @relation(fields: [workSpaceId], references: [id], onDelete: Cascade)
+  comments    Comment[]
+  problemUsers ProblemUser[]
+  problemFiles ProblemFile[]
+  
+  @@map("Problems")
+}
+
+model ProblemUser {
+  id        String   @id @default(cuid())
+  userId    String
+  problemId String
+  createdBy String?
+  createdAt DateTime @default(now())
+  
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  
+  @@map("ProblemUsers")
+}
+
+model ProblemFile {
+  id        String   @id @default(cuid())
+  problemId String
+  fileType  Int
+  fileDataId String
+  createdBy String?
+  createdAt DateTime @default(now())
+  
+  // Relations
+  problem  Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  fileData FileData @relation(fields: [fileDataId], references: [id], onDelete: Cascade)
+  
+  @@map("ProblemFiles")
+}
+
+model RelatedPerson {
+  id            String   @id @default(cuid())
+  userId        String
+  relatedUserId String
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  relationType  Int      @default(0)
+  isFavourite   Boolean?
+  order         Int?
+  workSpaceId   String
+  
+  // Relations
+  user         User         @relation("RelatedPersonUser", fields: [userId], references: [id], onDelete: Cascade)
+  relatedUser  User         @relation("RelatedPersonRelatedUser", fields: [relatedUserId], references: [id], onDelete: Cascade)
+  workSpace    WorkSpace    @relation(fields: [workSpaceId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, relatedUserId, workSpaceId, relationType])
+  @@map("RelatedPeople")
+}
+
+model FileData {
+  id          String   @id @default(cuid())
+  fileKey     String   @unique @default(uuid())
+  workSpaceId String?  @default("9")
+  fileSource  Int      @default(0)
+  fileName    String
+  fileExtension String?
+  mimeType    String
+  fileSize    BigInt
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  folder      String?
+  isTemporaryUntil DateTime?
+  
+  // Relations
+  taskImages     TaskImage[]      @relation("TaskImageFileData")
+  commentFiles   CommentFile[]
+  problemFiles   ProblemFile[]
+  usersAsAvatar  User[]           @relation("UserAvatar")
+  
+  @@map("FileDatas")
+}
+
+model UserSecurityToken {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  securityVersion      Int
+  lastPasswordChangeAt DateTime @default(now())
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("UserSecurityTokens")
+}
+
+model AppSetting {
+  id          String   @id @default(cuid())
+  userId      String?
+  settingKey  String?
+  settingValue String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("AppSettings")
 }

@@ -5,11 +5,15 @@ import { getUserIdFromTokenSync } from '@/lib/auth/jwt';
 
 // Validation schema for creating task
 const createTaskSchema = z.object({
-  title: z.string().min(1, 'Task title is required').max(200, 'Title must be less than 200 characters'),
-  description: z.string().optional(),
-  priority: z.enum(['low', 'medium', 'high']).optional().default('medium'),
-  dueDate: z.string().optional(),
-  assigneeIds: z.array(z.string()).optional().default([]),
+  description: z.string().min(1, 'Task description is required'),
+  startDateTime: z.string().datetime().optional(),
+  endDateTime: z.string().datetime().optional(),
+  timeEstimateDay: z.number().int().min(0).optional(),
+  timeEstimateHour: z.number().int().min(0).max(23).optional(),
+  timeEstimateMinute: z.number().int().min(0).max(59).optional(),
+  priority: z.number().int().min(0).optional(),
+  importanceType: z.number().int().min(0).optional(),
+  assignedToId: z.string().optional(),
 });
 
 // Helper function to check if user has access to project
@@ -71,13 +75,28 @@ export async function GET(
                 email: true,
               },
             },
-            project: {
+            workSpace: {
               select: {
                 id: true,
-                title: true,
+                workSpaceTitle: true,
               },
             },
             userTasks: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+            taskRequirements: {
+              orderBy: { order: 'asc' },
+            },
+            taskProgresses: {
+              orderBy: { createdAt: 'desc' },
               include: {
                 user: {
                   select: {
@@ -99,22 +118,28 @@ export async function GET(
     // Format the response
     const tasks = taskProjects.map(tp => ({
       id: tp.task.id,
-      title: tp.task.title,
       description: tp.task.description,
       status: tp.task.status,
       priority: tp.task.priority,
-      dueDate: tp.task.dueDate,
+      importanceType: tp.task.importanceType,
+      startDateTime: tp.task.startDateTime,
+      endDateTime: tp.task.endDateTime,
+      timeEstimateDay: tp.task.timeEstimateDay,
+      timeEstimateHour: tp.task.timeEstimateHour,
+      timeEstimateMinute: tp.task.timeEstimateMinute,
       createdBy: tp.task.createdBy,
       assignedTo: tp.task.assignedTo,
-      project: tp.task.project,
+      workSpace: tp.task.workSpace,
       createdAt: tp.task.createdAt,
-      updatedAt: tp.task.updatedAt,
+      lastEditedDate: tp.task.lastEditedDate,
+      requirements: tp.task.taskRequirements,
+      progress: tp.task.taskProgresses,
       assignees: tp.task.userTasks.map(ut => ({
         userId: ut.user.id,
         name: ut.user.name,
         email: ut.user.email,
-        status: ut.status,
-        assignedAt: ut.createdAt,
+        status: ut.taskStatus,
+        assignedAt: ut.createdDate,
       })),
     }));
 
@@ -159,20 +184,47 @@ export async function POST(
     // Parse and validate request body
     const body = await request.json();
     const validatedData = createTaskSchema.parse(body);
-    const { title, description, priority, dueDate, assigneeIds } = validatedData;
+    const {
+      description,
+      startDateTime,
+      endDateTime,
+      timeEstimateDay,
+      timeEstimateHour,
+      timeEstimateMinute,
+      priority,
+      importanceType,
+      assignedToId
+    } = validatedData;
+
+    // Get project details to get workspace ID
+    const project = await db.project.findUnique({
+      where: { id: projectId },
+      select: { workSpaceId: true }
+    });
+
+    if (!project) {
+      return NextResponse.json(
+        { error: 'Project not found' },
+        { status: 404 }
+      );
+    }
 
     // Use transaction to create task and related records
     const result = await db.$transaction(async (prisma) => {
       // Create task
       const task = await prisma.task.create({
         data: {
-          title,
+          workSpaceId: project.workSpaceId,
           description,
+          startDateTime: startDateTime ? new Date(startDateTime) : null,
+          endDateTime: endDateTime ? new Date(endDateTime) : null,
+          timeEstimateDay,
+          timeEstimateHour,
+          timeEstimateMinute,
           priority,
-          dueDate: dueDate ? new Date(dueDate) : null,
-          projectId,
+          importanceType,
           createdById: userId,
-          assignedToId: assigneeIds && assigneeIds.length > 0 ? assigneeIds[0] : null,
+          assignedToId,
         },
       });
 
@@ -184,22 +236,19 @@ export async function POST(
         },
       });
 
-      // Create user-task relationships for assignees
-      const userTasks = [];
-      if (assigneeIds && assigneeIds.length > 0) {
-        for (const assigneeId of assigneeIds) {
-          const userTask = await prisma.userTask.create({
-            data: {
-              taskId: task.id,
-              userId: assigneeId,
-              status: 'todo',
-            },
-          });
-          userTasks.push(userTask);
-        }
+      // Create user-task relationship for the assignee
+      let userTask = null;
+      if (assignedToId) {
+        userTask = await prisma.userTask.create({
+          data: {
+            taskId: task.id,
+            usersId: assignedToId,
+            taskStatus: 0, // todo
+          },
+        });
       }
 
-      return { task, taskProject, userTasks };
+      return { task, taskProject, userTask };
     });
 
     // Get the created task with full details
@@ -220,13 +269,28 @@ export async function POST(
             email: true,
           },
         },
-        project: {
+        workSpace: {
           select: {
             id: true,
-            title: true,
+            workSpaceTitle: true,
           },
         },
         userTasks: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+        taskRequirements: {
+          orderBy: { order: 'asc' },
+        },
+        taskProgresses: {
+          orderBy: { createdAt: 'desc' },
           include: {
             user: {
               select: {
@@ -242,22 +306,28 @@ export async function POST(
 
     const response = {
       id: taskWithDetails!.id,
-      title: taskWithDetails!.title,
       description: taskWithDetails!.description,
       status: taskWithDetails!.status,
       priority: taskWithDetails!.priority,
-      dueDate: taskWithDetails!.dueDate,
+      importanceType: taskWithDetails!.importanceType,
+      startDateTime: taskWithDetails!.startDateTime,
+      endDateTime: taskWithDetails!.endDateTime,
+      timeEstimateDay: taskWithDetails!.timeEstimateDay,
+      timeEstimateHour: taskWithDetails!.timeEstimateHour,
+      timeEstimateMinute: taskWithDetails!.timeEstimateMinute,
       createdBy: taskWithDetails!.createdBy,
       assignedTo: taskWithDetails!.assignedTo,
-      project: taskWithDetails!.project,
+      workSpace: taskWithDetails!.workSpace,
       createdAt: taskWithDetails!.createdAt,
-      updatedAt: taskWithDetails!.updatedAt,
+      lastEditedDate: taskWithDetails!.lastEditedDate,
+      requirements: taskWithDetails!.taskRequirements,
+      progress: taskWithDetails!.taskProgresses,
       assignees: taskWithDetails!.userTasks.map(ut => ({
         userId: ut.user.id,
         name: ut.user.name,
         email: ut.user.email,
-        status: ut.status,
-        assignedAt: ut.createdAt,
+        status: ut.taskStatus,
+        assignedAt: ut.createdDate,
       })),
     };
 
